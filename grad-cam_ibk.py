@@ -27,6 +27,12 @@ import sys
 import cv2
 import time
 import datetime
+from keras.models import model_from_json
+
+# path_img = 'img_0691_21(1).jpg'
+path_img = 'img_0656_11.jpg'
+hw_height = 200
+hw_width = 200
 
 def target_category_loss(x, category_index, nb_classes):
     return tf.multiply(x, K.one_hot([category_index], nb_classes))
@@ -39,9 +45,15 @@ def normalize(x):
     return x / (K.sqrt(K.mean(K.square(x))) + 1e-5)
 
 def load_image(path):
-    img_path = sys.argv[1]
-    img = image.load_img(img_path, target_size=(224, 224))
+    img = cv2.imread(path)
+    dst = cv2.resize(img, dsize=None, fx=0.78125, fy = 0.78125)
+    #img_path = sys.argv[1]
+    #img_path = "img_0691_21.jpg"
+    #img_path = path
+    #img = image.load_img(img_path, target_size=(224, 224))
+    #img = image.load_img(img_path, target_size=(hw_height, hw_width))
     x = image.img_to_array(img)
+    x = image.img_to_array(dst)
     x = np.expand_dims(x, axis=0)
     x = preprocess_input(x)
     return x
@@ -152,7 +164,8 @@ def grad_cam(input_model, image, category_index, layer_name):
         ヒートマップ画像
     '''
     # 分類クラス数
-    nb_classes = 1000
+    #nb_classes = 1000
+    nb_classes = 2
 
     # ----- 1. 入力画像の予測クラスを計算 -----
 
@@ -165,14 +178,29 @@ def grad_cam(input_model, image, category_index, layer_name):
 
     # 引数のinput_modelの出力層の後にtarget_layerレイヤーを追加
     # modelのpredictをすると予測クラス以外の値は0になる
-    x = Lambda(target_layer, output_shape = target_category_loss_output_shape)(input_model.output)  # ここらへん3行が変更されてる
-    model = Model(inputs=input_model.input, outputs=x)
-    model.summary()
+    #x = Lambda(target_layer, output_shape = target_category_loss_output_shape)(input_model.output)  # ここらへん3行が変更されてる
+    #model = Model(inputs=input_model.input, outputs=x)
+    #model.summary()
+    # Original
+    x = input_model.layers[-1].output
+    x = Lambda(target_layer, output_shape=target_category_loss_output_shape)(x)
+    model = keras.models.Model(input_model.layers[0].input, x)
 
     # 予測クラス以外の値は0なのでsumをとって予測クラスの値のみ抽出
     loss = K.sum(model.output)
     # 引数のlayer_nameのレイヤー(最後のconv層)のoutputを取得する
-    conv_output =  [l for l in model.layers if l.name is layer_name][0].output
+    #print("model.layer:")
+    #print(model.layers)
+    #print("model.layers[0].layers:")
+    #print(model.layers[0].layers)
+    #print("[l for l in model.layers[0].layers]):")
+    #print([l for l in model.layers[0].layers])
+    #print("layer_name:")
+    #print(layer_name)
+    #print("[l.name for l in model.layers[0].layers]:")
+    #print([l.name for l in model.layers[0].layers])
+    #conv_output =  [l for l in model.layers if l.name is layer_name][0].output
+    conv_output =  [l for l in model.layers if l.name == layer_name][0].output
 
     # ----- 3. 予測クラスのLossから最後のconv層への逆伝搬(勾配)を計算 -----
 
@@ -195,8 +223,8 @@ def grad_cam(input_model, image, category_index, layer_name):
     #cam.shape=(14, 14)
     # ※疑問点1：camの初期化はzerosでなくて良いのか?
     weights = np.mean(grads_val, axis = (0, 1))
-    cam = np.ones(output.shape[0 : 2], dtype = np.float32)
-    #cam = np.zeros(output.shape[0 : 2], dtype = np.float32)    # 別の作者の自作モデルではこちらを使用
+    #cam = np.ones(output.shape[0 : 2], dtype = np.float32)
+    cam = np.zeros(output.shape[0 : 2], dtype = np.float32)    # 別の作者の自作モデルではこちらを使用
 
     # ----- 5. 最後のconv層の順伝搬の出力にチャンネル毎の重みをかけて、足し合わせて、ReLUを通す -----
 
@@ -204,12 +232,12 @@ def grad_cam(input_model, image, category_index, layer_name):
     for i, w in enumerate(weights):
         cam += w * output[:, :, i]
 
-    cam = cv2.resize(cam, (224, 224))   # 入力画像のサイズにリサイズ(14, 14) → (224, 224)
+    cam = cv2.resize(cam, (hw_height, hw_width))   # 入力画像のサイズにリサイズ(14, 14) → (224, 224)
     cam = np.maximum(cam, 0)        # 負の値を0に置換。処理としてはReLUと同じ。
     # 値を0~1に正規化。
     # ※疑問2 : (cam - np.min(cam))/(np.max(cam) - np.min(cam))でなくて良いのか?
-    heatmap = cam / np.max(cam)
-    #heatmap = (cam - np.min(cam))/(np.max(cam) - np.min(cam))    # 別の作者の自作モデルではこちらを使用
+    #heatmap = cam / np.max(cam)
+    heatmap = (cam - np.min(cam))/(np.max(cam) - np.min(cam))    # 別の作者の自作モデルではこちらを使用
 
     # ----- 6. 入力画像とheatmapをかける -----
 
@@ -228,26 +256,32 @@ def grad_cam(input_model, image, category_index, layer_name):
 
 # ① 入力画像の読み込み
 # 入力画像を変換する場合はこちらを変更
-preprocessed_input = load_image(sys.argv[1])
-#preprocessed_input = load_image("./examples/boat.jpg")
+#preprocessed_input = load_image(sys.argv[1])
+#preprocessed_input = load_image("img_0691_21.jpg")
+preprocessed_input = load_image(path_img)
 
 # ② モデルの読み込み
 # 自作モデルを使用する場合はこちらを変更
-model = VGG16(weights='imagenet')
-# model = VGG16(weights='best.hdf5')
+#model = VGG16(weights='imagenet')
+modelname_text = open("model.json").read()
+json_strings = modelname_text.split('##########')
+textlist = json_strings[1].replace("[", "").replace("]", "").replace("\'", "").split()
+model = model_from_json(json_strings[0])
+model.load_weights("last.hdf5")  # best.hdf5 で損失最小のパラメータを使用
 
 # ③ 入力画像の予測確率(predictions)と予測ｸﾗｽ(predicted_class)の計算
 # VGG16以外のモデルを使用する際はtop_1=~から3行はコメントアウト
 predictions = model.predict(preprocessed_input)
-top_1 = decode_predictions(predictions)[0][0]
-print('Predicted class:')
-print('%s (%s) with probability %.2f' % (top_1[1], top_1[0], top_1[2]))
+#top_1 = decode_predictions(predictions)[0][0]
+#print('Predicted class:')
+#print('%s (%s) with probability %.2f' % (top_1[1], top_1[0], top_1[2]))
 
 predicted_class = np.argmax(predictions)
-
+print(predicted_class)
 # ④ Grad-Camの計算
 # 自作モデルの場合、引数の"block5_conv3"を自作モデルの最終conv層のレイヤー名に変更.
-cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, "block5_conv3")
+#cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, "block5_conv3")
+cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, "conv2d_3")
 
 # ⑤ 画像の保存
 # now = time.ctime()
