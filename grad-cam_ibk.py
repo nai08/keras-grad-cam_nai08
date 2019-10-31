@@ -27,12 +27,16 @@ import sys
 import cv2
 import time
 import datetime
+import os
 from keras.models import model_from_json
 
 # path_img = 'img_0691_21(1).jpg'
-path_img = 'img_0656_11.jpg'
-hw_height = 200
-hw_width = 200
+#path_img = 'img_0656_11.jpg'
+#path_img = '29.jpg'
+path_img = sys.argv[1]
+hw_height = 200 # 画像の縦サイズ
+hw_width = 200  # 画像の横サイズ
+classes = 2     # クラス数
 
 def target_category_loss(x, category_index, nb_classes):
     return tf.multiply(x, K.one_hot([category_index], nb_classes))
@@ -46,7 +50,9 @@ def normalize(x):
 
 def load_image(path):
     img = cv2.imread(path)
-    dst = cv2.resize(img, dsize=None, fx=0.78125, fy = 0.78125)
+    #dst = cv2.resize(img, dsize=None, fx=0.78125, fy = 0.78125)
+    #dst = cv2.resize(img, dsize=(200, 200))
+    dst = cv2.resize(img, dsize=(hw_height, hw_width))  # 画像をhwにリサイズ
     #img_path = sys.argv[1]
     #img_path = "img_0691_21.jpg"
     #img_path = path
@@ -150,6 +156,7 @@ def grad_cam(input_model, image, category_index, layer_name):
         入力画像(枚数, 縦, 横, チャンネル)
     category_index : int
         入力画像の分類クラス
+    nb_classes = 2
     layer_name : str
         最後のconv層の後のactivation層のレイヤー名.
         最後のconv層でactivationを指定していればconv層のレイヤー名.
@@ -165,7 +172,8 @@ def grad_cam(input_model, image, category_index, layer_name):
     '''
     # 分類クラス数
     #nb_classes = 1000
-    nb_classes = 2
+    #nb_classes = 2
+    nb_classes = classes
 
     # ----- 1. 入力画像の予測クラスを計算 -----
 
@@ -237,6 +245,9 @@ def grad_cam(input_model, image, category_index, layer_name):
     # 値を0~1に正規化。
     # ※疑問2 : (cam - np.min(cam))/(np.max(cam) - np.min(cam))でなくて良いのか?
     #heatmap = cam / np.max(cam)
+    print(cam)
+    print(np.min(cam))
+    print(np.max(cam))
     heatmap = (cam - np.min(cam))/(np.max(cam) - np.min(cam))    # 別の作者の自作モデルではこちらを使用
 
     # ----- 6. 入力画像とheatmapをかける -----
@@ -277,17 +288,22 @@ predictions = model.predict(preprocessed_input)
 #print('%s (%s) with probability %.2f' % (top_1[1], top_1[0], top_1[2]))
 
 predicted_class = np.argmax(predictions)
-print(predicted_class)
+print("判定結果" + str(predicted_class))
 # ④ Grad-Camの計算
 # 自作モデルの場合、引数の"block5_conv3"を自作モデルの最終conv層のレイヤー名に変更.
 #cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, "block5_conv3")
 cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, "conv2d_3")
+print(cam)
+#cv2.imshow("cam", cam)
+#cv2.waitKey(0)
+#cv2.destroyAllWindows()
 
 # ⑤ 画像の保存
 # now = time.ctime()
 now = datetime.datetime.now()   # 現在時刻の取得
 # result_name = "gradcam_"+now+".jpg"
-result_name = "gradcam_{0:%Y%m%d-%H%M%S}.jpg".format(now)
+path_name, ext = os.path.splitext(os.path.basename(path_img))   # ファイル名の取得
+result_name = path_name + "_gradcam_{0:%Y%m%d-%H%M%S}.jpg".format(now)
 # cv2.imwrite("gradcam.jpg", cam)
 cv2.imwrite(result_name, cam)
 
@@ -307,7 +323,7 @@ gradcam = saliency[0] * heatmap[..., np.newaxis]
 # now = time.ctime()
 now = datetime.datetime.now()   # 現在時刻の取得
 # result_name = "guided_gradcam_"+now+".jpg"
-result_name = "guided_gradcam_{0:%Y%m%d-%H%M%S}.png".format(now)
+result_name = path_name + "_guided_gradcam_{0:%Y%m%d-%H%M%S}.jpg".format(now)
 # cv2.imwrite("guided_gradcam.jpg", deprocess_image(gradcam))
 cv2.imwrite(result_name, deprocess_image(gradcam))
 
