@@ -14,7 +14,7 @@ tf.keras.backend.set_session(tf.Session(config=config))
 
 from keras.applications.vgg16 import (
     VGG16, preprocess_input, decode_predictions)
-from keras.models import Model
+from keras.models import Model, load_model
 from keras.preprocessing import image
 from keras.layers.core import Lambda
 from keras.models import Sequential
@@ -37,6 +37,9 @@ path_img = sys.argv[1]
 hw_height = 200 # 画像の縦サイズ
 hw_width = 200  # 画像の横サイズ
 classes = 2     # クラス数
+#model_path = 'dorc.model'
+#last_layer = "block5_conv3"
+last_layer = "conv2d_3"
 
 def target_category_loss(x, category_index, nb_classes):
     return tf.multiply(x, K.one_hot([category_index], nb_classes))
@@ -78,7 +81,8 @@ def register_gradient():
             return grad * tf.cast(grad > 0., dtype) * \
                 tf.cast(op.inputs[0] > 0., dtype)
 
-def compile_saliency_function(model, activation_layer='block5_conv3'):
+#def compile_saliency_function(model, activation_layer='block5_conv3'):
+def compile_saliency_function(model, activation_layer=last_layer):
     '''指定レイヤーのチャンネル方向最大値に対する入力の勾配を計算する関数の作成'''
     input_img = model.input # モデルのインプット
     # 入力層の次の層以降をレイヤー名とインスタンスの辞書として保持
@@ -116,7 +120,8 @@ def modify_backprop(model, name):
         # 新しくモデルをインスタンス化
         # 自作モデルを使用する場合はこちらを修正
         # re-instanciate a new model
-        new_model = VGG16(weights='imagenet')
+        #new_model = VGG16(weights='imagenet')
+        new_model = model
     return new_model
 
 def deprocess_image(x):
@@ -237,6 +242,8 @@ def grad_cam(input_model, image, category_index, layer_name):
     # ----- 5. 最後のconv層の順伝搬の出力にチャンネル毎の重みをかけて、足し合わせて、ReLUを通す -----
 
     # 最後のconv層の順伝搬の出力にチャンネル毎の重みをかけて、足し合わせ
+    print("weights")
+    print(weights)
     for i, w in enumerate(weights):
         cam += w * output[:, :, i]
 
@@ -245,8 +252,11 @@ def grad_cam(input_model, image, category_index, layer_name):
     # 値を0~1に正規化。
     # ※疑問2 : (cam - np.min(cam))/(np.max(cam) - np.min(cam))でなくて良いのか?
     #heatmap = cam / np.max(cam)
+    print("cam")
     print(cam)
+    print("np.min(cam)")
     print(np.min(cam))
+    print("np.max(cam)")
     print(np.max(cam))
     heatmap = (cam - np.min(cam))/(np.max(cam) - np.min(cam))    # 別の作者の自作モデルではこちらを使用
 
@@ -279,6 +289,8 @@ json_strings = modelname_text.split('##########')
 textlist = json_strings[1].replace("[", "").replace("]", "").replace("\'", "").split()
 model = model_from_json(json_strings[0])
 model.load_weights("last.hdf5")  # best.hdf5 で損失最小のパラメータを使用
+#model = load_model(model_path)
+model.summary()
 
 # ③ 入力画像の予測確率(predictions)と予測ｸﾗｽ(predicted_class)の計算
 # VGG16以外のモデルを使用する際はtop_1=~から3行はコメントアウト
@@ -292,8 +304,9 @@ print("判定結果" + str(predicted_class))
 # ④ Grad-Camの計算
 # 自作モデルの場合、引数の"block5_conv3"を自作モデルの最終conv層のレイヤー名に変更.
 #cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, "block5_conv3")
-cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, "conv2d_3")
-print(cam)
+cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, last_layer)
+#cam, heatmap = grad_cam(model, preprocessed_input, predicted_class, "conv2d_3")
+#print(cam)
 #cv2.imshow("cam", cam)
 #cv2.waitKey(0)
 #cv2.destroyAllWindows()
